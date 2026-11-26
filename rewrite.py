@@ -1,6 +1,6 @@
 import ollama
 import numpy as np
-from clickbait import analyze_headline, embedder
+from clickbait import embedder, nlp
 from classifier import predict_clickbait
 
 
@@ -25,8 +25,18 @@ def rewrite_headline(headline: str, min_similarity: float = 0.62, max_attempts: 
             "entities_preserved": True
         }
 
-    features = analyze_headline(headline)
-    entities = [ent["text"] for ent in features["syntactic"]["named_entities"]]
+    doc = nlp(headline)
+    entities = []
+    for ent in doc.ents:
+        if ent.label_ in {"PERSON", "ORG", "GPE", "LOC", "PRODUCT", "EVENT", "CARDINAL", "MONEY", "PERCENT"}:
+            for token in ent:
+                if token.pos_ == "NUM" or (token.pos_ == "PROPN" and not token.is_stop):
+                    if token.pos_ == "NUM" or nlp(token.text.lower())[0].pos_ == "PROPN" or ent.label_ in {"PERSON",
+                                                                                                           "ORG",
+                                                                                                           "GPE"}:
+                        if token.text.lower() not in {"secrets", "doctors", "shocking", "sleep"}:
+                            entities.append(token.text.strip())
+    entities = list(dict.fromkeys(entities))
     orig_vec = embedder.encode(headline)
 
     best_rewrite = headline
@@ -56,6 +66,9 @@ def rewrite_headline(headline: str, min_similarity: float = 0.62, max_attempts: 
 
         if sim >= min_similarity and all_entities_present:
             break
+
+        if best_sim < min_similarity:
+            best_rewrite = f"[Insufficient factual content to rewrite] {headline}"
 
     return {
         "original": headline,
